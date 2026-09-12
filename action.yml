@@ -1,0 +1,59 @@
+name: 'srekit SRE Verification Action'
+description: 'SRE Toolkit automated pre-flight and post-deployment SRE health and security quality gate'
+author: 'Doni Wicaksono'
+branding:
+  icon: 'activity'
+  color: 'purple'
+
+inputs:
+  version:
+    description: 'srekit version to download'
+    required: false
+    default: 'latest'
+  command:
+    description: 'srekit subcommand to run (verify, diag, audit)'
+    required: false
+    default: 'verify'
+  fail-on:
+    description: 'Threshold severity to trigger failure: critical or warning'
+    required: false
+    default: 'critical'
+  namespace:
+    description: 'Kubernetes namespace filter'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and Install srekit
+      shell: bash
+      env:
+        SREKIT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/hi-donwi/SRE-Toolkit/main/install.sh -o /tmp/srekit-install.sh
+        SREKIT_VERSION="$SREKIT_VERSION" bash /tmp/srekit-install.sh
+
+    - name: Execute srekit Quality Gate
+      shell: bash
+      env:
+        # Inputs are passed through the environment rather than interpolated
+        # into the command line: `${{ }}` expansion happens before the shell
+        # runs, so a value containing shell metacharacters would execute.
+        SREKIT_COMMAND: ${{ inputs.command }}
+        SREKIT_FAIL_ON: ${{ inputs.fail-on }}
+        SREKIT_NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+
+        args=()
+        if [ -n "$SREKIT_NAMESPACE" ]; then
+          args+=(-n "$SREKIT_NAMESPACE")
+        fi
+
+        if [ "$SREKIT_COMMAND" = "verify" ]; then
+          srekit verify --fail-on "$SREKIT_FAIL_ON" "${args[@]}"
+        else
+          srekit "$SREKIT_COMMAND" "${args[@]}"
+        fi

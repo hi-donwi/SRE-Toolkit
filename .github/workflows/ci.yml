@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # Go backports security fixes only to the two most recent major
+        # releases, so the matrix tracks those. An older entry would satisfy
+        # go.mod but carry unpatched standard-library advisories, making the
+        # vulncheck job below permanently red.
+        go: ['1.26', '1.27']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify formatting
+        run: |
+          unformatted="$(gofmt -l . )"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Verify third-party attribution is current
+        # Adding a dependency without refreshing attribution is a licence
+        # compliance gap, and the binary we publish embeds every one of them.
+        if: matrix.go == '1.27' && runner.os == 'Linux'
+        run: make licenses-check
+
+      - name: Test
+        # -race catches the data races that a metrics server and a background
+        # evaluation ticker make easy to introduce.
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build -v ./...
+
+  cross-compile:
+    name: Cross-compile static binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      # The tool ships as a zero-dependency static binary; a CGO regression
+      # would only surface at deploy time otherwise.
+      - name: Build linux/amd64 and linux/arm64
+        run: make build-linux
+
+      - name: Confirm the binaries are statically linked
+        run: |
+          file bin/srekit-linux-amd64 bin/srekit-linux-arm64
+          file bin/srekit-linux-amd64 | grep -q "statically linked"
+
+  vulncheck:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

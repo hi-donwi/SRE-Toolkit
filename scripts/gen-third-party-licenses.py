@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Regenerate THIRD_PARTY_LICENSES.md from the modules actually linked into the
+shipped binaries.
+
+Attribution has to cover what is distributed, not what appears in go.mod. A
+module reachable only from a platform we do not build for is never compiled in,
+so listing it would overstate what the binary contains; conversely, missing one
+that *is* linked breaks the attribution its licence requires.
+
+Run via `make licenses`.
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+# Platforms we publish binaries for.
+TARGETS = [("linux", "amd64"), ("linux", "arm64"), ("darwin", "amd64"), ("darwin", "arm64")]
+
+SELF = "github.com/hi-donwi/SRE-Toolkit"
+THIRD_PARTY_PREFIXES = ("github.com/", "gopkg.in/", "golang.org/x/")
+
+
+def linked_packages():
+    """Every third-party package compiled into at least one shipped binary."""
+    found = set()
+    for goos, goarch in TARGETS:
+        env = {**os.environ, "GOOS": goos, "GOARCH": goarch}
+        out = subprocess.run(
+            ["go", "list", "-deps", "./..."], env=env, capture_output=True, text=True
+        )
+        if out.returncode != 0:
+            sys.exit(f"go list failed for {goos}/{goarch}:\n{out.stderr}")
+        found |= {
+            p for p in out.stdout.split()
+            if p.startswith(THIRD_PARTY_PREFIXES) and not p.startswith(SELF)
+        }
+    return found
+
+
+def module_index():
+    out = subprocess.run(
+        ["go", "list", "-m", "-f", "{{.Path}}|{{.Version}}|{{.Dir}}", "all"],
+        capture_output=True, text=True,
+    )
+    index = {}
+    for line in out.stdout.splitlines():
+        parts = line.split("|")
+        if len(parts) == 3 and parts[2]:
+            index[parts[0]] = (parts[1], parts[2])
+    return index
+
+
+def detect_licence(text):
+    """Identify the licence, including the dual-licensed cases.
+
+    Order matters: a dual MIT/Apache file contains both texts, so the combined
+    case has to be tested before either single one.
+    """
+    head = text[:3000]
+    apache = "Apache License" in head and "Version 2.0" in head
+    mit = "Permission is hereby granted, free of charge" in head
+    bsd = "Redistribution and use in source and binary forms" in head
+
+    if apache and mit:
+        return "MIT AND Apache-2.0"
+    if apache:
+        return "Apache-2.0"
+    if mit:
+        return "MIT"
+    if bsd:
+        return "BSD-3-Clause" if "Neither the name" in head else "BSD-2-Clause"
+    return "unknown — read the text below"
+
+
+def licence_files(directory):
+    """LICENSE-ish and NOTICE files shipped with a module."""
+    licences, notices = [], []
+    for name in sorted(os.listdir(directory)):
+        if re.match(r"^(LICENSE|LICENCE|COPYING)", name, re.I):
+            licences.append(name)
+        elif re.match(r"^NOTICE", name, re.I):
+            notices.append(name)
+    return licences, notices
+
+
+def read(path):
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        return handle.read().strip()
+
+
+def main():
+    packages = linked_packages()
+    modules = module_index()
+
+    used = {}
+    for pkg in packages:
+        owner = max(
+            (m for m in modules if pkg == m or pkg.startswith(m + "/")),
+            key=len, default=None,
+        )
+        if owner:
+            used[owner] = modules[owner]
+
+    rows, bodies = [], []
+    for module in sorted(used):
+        version, directory = used[module]
+        licences, notices = licence_files(directory)
+
+        if licences:
+            text = read(os.path.join(directory, licences[0]))
+            spdx = detect_licence(text)
+        else:
+            # Some modules declare their licence only in the README. Record that
+            # honestly rather than inventing a LICENSE file for them.
+            text = "(This module ships no LICENSE file; its README declares the licence.)"
+            spdx = "declared in README"
+
+        # Apache-2.0 section 4(d) requires a NOTICE to travel with redistribution.
+        for notice in notices:
+            text += f"\n\n--- {notice} ---\n\n" + read(os.path.join(directory, notice))
+
+        rows.append(f"| `{module}` | {version} | {spdx} |")
+        bodies.append(f"### {module}\n\n```\n{text}\n```\n")
+
+    excluded = sorted(set(modules) - set(used) - {SELF})
+    excluded_note = ""
+    if excluded:
+        listed = ", ".join(f"`{m}`" for m in excluded)
+        excluded_note = (
+            "\nPresent in `go.mod` but not compiled into any shipped binary, and "
+            f"therefore not reproduced here: {listed}.\n"
+        )
+
+    document = f"""# Third-party licences
+
+`srekit` ships as a statically linked binary, so these dependencies are compiled
+into the artefact you download. Their terms travel with it, and their notices are
+reproduced below to satisfy the attribution each one requires.
+
+All of them are permissive (MIT, BSD, or Apache-2.0) and compatible with
+distributing the combined work under Apache-2.0.
+
+This covers what is actually linked into the published `linux` and `darwin`
+builds.
+{excluded_note}
+Generated by `scripts/gen-third-party-licenses.py`. Run `make licenses` after
+changing dependencies; CI checks that this file is current.
+
+## Summary
+
+| Module | Version | Licence |
+|---|---|---|
+{chr(10).join(rows)}
+
+## Full texts
+
+""" + "\n".join(bodies)
+
+    with open("THIRD_PARTY_LICENSES.md", "w", encoding="utf-8") as handle:
+        handle.write(document)
+
+    print(f"THIRD_PARTY_LICENSES.md: {len(used)} modules")
+
+
+if __name__ == "__main__":
+    main()

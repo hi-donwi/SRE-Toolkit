@@ -1,0 +1,55 @@
+# Default values for srekit Helm Chart
+
+image:
+  repository: ghcr.io/donwi/srekit
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+metrics:
+  port: 9876
+  interval: "30s"
+  path: "/metrics"
+
+serviceMonitor:
+  enabled: true
+  interval: "30s"
+  scrapeTimeout: "10s"
+  labels: {}
+
+service:
+  type: ClusterIP
+  port: 9876
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "srekit-agent"
+
+rbac:
+  create: true
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 64Mi
+  requests:
+    cpu: 25m
+    memory: 32Mi
+
+nodeSelector: {}
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+  - operator: Exists
+    effect: NoExecute
+
+affinity: {}
+
+# Additional environment variables for the agent container.
+# SREKIT_PROC_ROOT is set by the chart; override it only if you mount the host
+# procfs somewhere other than /host/proc.
+extraEnv: []

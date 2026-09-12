@@ -1,0 +1,17 @@
+apiVersion: v2
+name: srekit
+description: Enterprise SRE Control, Diagnostics Agent, and Prometheus Metrics Exporter
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - sre
+  - diagnostics
+  - monitoring
+  - troubleshooting
+  - prometheus
+home: https://github.com/hi-donwi/SRE-Toolkit
+sources:
+  - https://github.com/hi-donwi/SRE-Toolkit
+maintainers:
+  - name: Donwi

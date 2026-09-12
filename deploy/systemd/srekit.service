@@ -1,0 +1,23 @@
+[Unit]
+Description=srekit SRE Diagnostic & Health Monitoring Daemon
+After=network.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/srekit daemon --interval=60s --alert-on=critical
+Restart=always
+RestartSec=10s
+
+# Sandboxing & Security hardening
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=false
+LimitNOFILE=65535
+
+# Environment variables (Optional webhook)
+# Environment="SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX"
+
+[Install]
+WantedBy=multi-user.target

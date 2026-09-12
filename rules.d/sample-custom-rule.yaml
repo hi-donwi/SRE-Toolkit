@@ -1,0 +1,42 @@
+# Example custom rules.
+#
+# Files in ./rules.d and ~/.srekit/rules.d are loaded at runtime; no rebuild is
+# needed. A file may hold several rules separated by `---`.
+#
+# Every condition a rule declares must hold for it to fire — conditions are
+# ANDed, not ORed.
+
+id: "CUSTOM-REDIS-EXPOSURE"
+title: "Unsecured Redis Port Detected by Enterprise Policy"
+target: "SECURITY"
+severity: "WARNING"
+category: "Enterprise Security Policy"
+resource: "port:6379"
+symptom: "TCP port 6379 accepts connections without an enforced VPC perimeter."
+root_cause: "The Redis instance is reachable without TLS or an enforced password."
+remedy_steps:
+  - "Set requirepass in /etc/redis/redis.conf and restart the service"
+  - "Bind Redis to 127.0.0.1 or a unix socket, and restrict it at the firewall"
+# No quick_fix_cmd: rotating a credential is a decision for an operator, not a
+# command this tool should offer to run unattended with a value from a file.
+conditions:
+  port_listening: 6379
+
+---
+
+# Fires only when sshd is installed AND has not been hardened. With ORed
+# conditions this would fire on any host that merely has an sshd_config.
+id: "CUSTOM-SSH-KEY-ONLY"
+title: "sshd Does Not Enforce Key-Only Authentication"
+target: "SECURITY"
+severity: "WARNING"
+category: "Enterprise Security Policy"
+resource: "file:/etc/ssh/sshd_config"
+symptom: "PasswordAuthentication is not explicitly disabled in sshd_config."
+root_cause: "Policy requires public-key authentication only; password auth remains brute-forceable."
+remedy_steps:
+  - "Deploy authorized_keys for every operator who needs access"
+  - "Set 'PasswordAuthentication no' in /etc/ssh/sshd_config, then: systemctl reload sshd"
+conditions:
+  file_exists: "/etc/ssh/sshd_config"
+  file_not_contains: "^PasswordAuthentication\\s+no"

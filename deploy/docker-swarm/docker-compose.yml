@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  srekit-agent:
+    image: ghcr.io/donwi/srekit:latest
+    command:
+      - daemon
+      - --interval=60s
+      - --alert-on=critical
+      - --webhook-url=${SLACK_WEBHOOK_URL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /etc/os-release:/etc/os-release:ro
+    environment:
+      - TZ=UTC
+      # Inside the container, /proc describes the container. Point the host
+      # rules at the node's procfs, bind-mounted below.
+      - SREKIT_PROC_ROOT=/host/proc
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: 48M
+        reservations:
+          cpus: "0.05"
+          memory: 24M
+
+  srekit-metrics:
+    image: ghcr.io/donwi/srekit:latest
+    command:
+      - export-metrics
+      - --port=9876
+      - --interval=30s
+    ports:
+      - target: 9876
+        published: 9876
+        mode: host
+    environment:
+      - TZ=UTC
+      - SREKIT_PROC_ROOT=/host/proc
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /etc/os-release:/etc/os-release:ro
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager

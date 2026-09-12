@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+# Building release binaries from a single toolchain keeps the published
+# artifacts reproducible. It tracks a currently-supported Go release, which is
+# where standard-library security fixes land.
+env:
+  GO_VERSION: '1.27'
+
+jobs:
+  # A tag must never publish binaries that do not pass their own test suite.
+  verify:
+    name: Verify before releasing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  build-release:
+    name: Build multi-platform release binaries
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed for the commit SHA stamped into the binary.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Compile static binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # -trimpath strips local filesystem paths so the same source and tag
+          # produce the same bytes on any builder.
+          LDFLAGS="-s -w \
+            -X 'github.com/donwi/srekit/cmd.Version=${TAG_NAME}' \
+            -X 'github.com/donwi/srekit/cmd.GitCommit=${COMMIT}' \
+            -X 'github.com/donwi/srekit/cmd.BuildDate=${BUILD_DATE}'"
+
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            echo "Building ${GOOS}/${GOARCH}..."
+            GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 \
+              go build -trimpath -ldflags="$LDFLAGS" \
+              -o "dist/srekit-${GOOS}-${GOARCH}" .
+          done
+
+      - name: Confirm the Linux binaries are static
+        run: |
+          set -euo pipefail
+          for f in dist/srekit-linux-*; do
+            file "$f"
+            file "$f" | grep -q "statically linked"
+          done
+
+      - name: Smoke-test the native binary
+        run: |
+          set -euo pipefail
+          chmod +x dist/srekit-linux-amd64
+          ./dist/srekit-linux-amd64 version
+          # `diag host` exercises the procfs and statfs rules on a real Linux
+          # kernel, so a tag cannot publish a binary that panics on startup.
+          ./dist/srekit-linux-amd64 diag host --no-color
+
+      - name: Bundle licence files with the release
+        # Apache-2.0 section 4 requires the licence and NOTICE to travel with
+        # redistribution, and the binaries embed third-party code of their own.
+        run: cp LICENSE NOTICE THIRD_PARTY_LICENSES.md dist/
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum srekit-* > checksums.txt
+          cat checksums.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

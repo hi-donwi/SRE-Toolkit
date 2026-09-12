@@ -1,0 +1,55 @@
+name: New rule
+description: Suggest a check srectl should perform
+labels: [enhancement, rule]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening this: a site-specific check may not need code at all.
+        `rules.d/*.yaml` covers file contents, listening ports, environment
+        variables, and command presence without a rebuild — see the README.
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target
+      options: [Host, Docker, Swarm, Kubernetes, Security, Network]
+    validations:
+      required: true
+
+  - type: textarea
+    id: failure
+    attributes:
+      label: What breaks in production
+      description: |
+        The concrete failure this would have caught. A real incident you have
+        seen is the most convincing case for a rule.
+    validations:
+      required: true
+
+  - type: textarea
+    id: detection
+    attributes:
+      label: How you would detect it manually
+      description: The command or file you would check, and what a bad result looks like.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: What the root cause usually is
+      description: |
+        The mechanism, not the symptom — this becomes the finding's RootCause,
+        which is the field that tells an operator what to do next.
+    validations:
+      required: false
+
+  - type: input
+    id: severity
+    attributes:
+      label: Suggested severity
+      description: CRITICAL (broken now), WARNING (will break), or INFO (context)
+    validations:
+      required: false

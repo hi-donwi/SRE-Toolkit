@@ -1,0 +1,69 @@
+name: Bug report
+description: A rule fired when it shouldn't, didn't fire when it should, or something crashed
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Linux-only host rules (`HOST-MEM-*`, `HOST-CPU-001`, `HOST-ROF-001`,
+        `HOST-ZOM-001`, `HOST-NET-001`) are tested against captured fixtures but
+        have not been run on a real Linux machine. If your report is about one of
+        those, say so — that is a known weak spot and your report is especially
+        useful.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `srectl version`
+      placeholder: "srectl version v0.1.0 (commit: abc1234, built: ...)"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Where it ran
+      description: OS and distribution, and what it was diagnosing
+      placeholder: "Ubuntu 22.04 on EC2, diagnosing a k3s node"
+    validations:
+      required: true
+
+  - type: input
+    id: rule
+    attributes:
+      label: Rule ID
+      description: "If this is about a specific finding, e.g. HOST-DSK-001"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: |
+        The command you ran and its output. `--no-color` output pastes better.
+        Please redact hostnames, IPs, and anything else you would not want public
+        — findings can carry log excerpts.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: ground-truth
+    attributes:
+      label: What the system actually shows
+      description: |
+        If a rule reported the wrong thing, the output of the equivalent manual
+        command helps enormously — `df -h`, `free -m`, `kubectl get pods`,
+        `docker ps -a`, whatever is relevant.
+      render: text
+    validations:
+      required: false
